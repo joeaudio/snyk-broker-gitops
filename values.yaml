@@ -1,0 +1,15 @@
+broker:
+  client:
+    id: my-broker
+    token: <snyk-broker-token>
+  container:
+    image:
+      repository: snyk/broker
+      tag: latest
+    mode: code
+  env:
+    - name: BROKER_TOKEN
+      valueFrom:
+        secretKeyRef:
+          name: snyk-broker-secret
+          key: broker-token
