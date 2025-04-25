@@ -1,0 +1,243 @@
+{{ $setTlsRejectUnauthorized := include "snyk-broker.setTlsRejectUnauthorized" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "{{ .Values.scmType}}-broker{{if not .Values.disableSuffixes }}-{{ .Release.Name }}{{ end }}"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "snyk-broker.labels" . }}
+spec:
+  {{- if .Values.highAvailabilityMode.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{ else }}
+  replicas: 1
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "snyk-broker.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "snyk-broker.podLabels" . | nindent 8 }}
+    spec:
+      {{- if .Values.extraPodSpecs }}
+          {{- toYaml .Values.extraPodSpecs | nindent 6 }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "snyk-broker.serviceAccountName" . }}{{if not .Values.disableSuffixes }}-{{ .Release.Name }}{{ end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: "{{ .Values.scmType}}-broker{{if not .Values.disableSuffixes }}-{{ .Release.Name }}{{ end }}"
+          resources:
+            limits:
+              cpu: {{ .Values.brokerResources.limits.cpu }}
+              memory: {{ .Values.brokerResources.limits.memory }}
+            requests:
+              cpu: {{ .Values.brokerResources.requests.cpu }}
+              memory: {{ .Values.brokerResources.requests.memory}}
+          securityContext:
+            {{ include "snyk-broker.securityContext" . | nindent 12 }}
+          {{- if .Values.image.tag }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}-{{ .Values.scmType }}"
+          {{- else }}
+          image: "{{ .Values.image.repository }}:{{ .Values.scmType }}"
+          {{- end }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.deployment.container.containerPort }}
+          {{- if .Values.brokerLivenessProbe.enabled }}
+          livenessProbe:
+            httpGet:
+              port: {{ .Values.deployment.container.containerPort }}
+              path: {{ .Values.brokerLivenessProbe.path }}
+              {{- if or ( and (.Values.httpsCert) (.Values.httpsKey) ) ( .Values.enableBrokerLocalWebserverOverHttps ) }}
+              scheme: HTTPS
+              {{- else }}
+              scheme: HTTP
+              {{- end }}
+            {{- toYaml .Values.brokerLivenessProbe.config | nindent 12 }}
+          {{- end }}
+          {{- if .Values.brokerReadinessProbe.enabled }}
+          readinessProbe:
+            httpGet:
+              port: {{ .Values.deployment.container.containerPort }}
+              path: {{ .Values.brokerReadinessProbe.path }}
+              {{- if or ( and (.Values.httpsCert) (.Values.httpsKey) ) ( .Values.enableBrokerLocalWebserverOverHttps ) }}
+              scheme: HTTPS
+              {{- else }}
+              scheme: HTTP
+              {{- end }}
+            {{- toYaml .Values.brokerReadinessProbe.config | nindent 12 }}
+          {{- end }}
+          {{- if .Values.extraContainerSpecs }}
+          {{- toYaml .Values.extraContainerSpecs | nindent 10 }}
+          {{- end }}
+          volumeMounts:
+              {{- if (include "snyk-broker.acceptJson" .)}}
+              - name: {{ include "snyk-broker.fullname" . }}-accept-volume
+                mountPath: /home/node/private
+                readOnly: true
+              {{- end }}
+              {{- if or (.Values.caCert) (.Values.caCertFile) ( .Values.caCertFileSecret.name ) }}
+              - name: {{ include "snyk-broker.fullname" . }}-cacert-volume
+                mountPath: /home/node/cacert
+                readOnly: true
+              {{- end }}
+              {{- if or ( and (.Values.httpsCert) (.Values.httpsKey) ) ( .Values.httpsSecret.name ) }}
+              - name: {{ include "snyk-broker.fullname" . }}-tls-secret-volume
+                mountPath: /home/node/tls-cert/
+                readOnly: true
+              {{- end }}
+{{- if .Values.extraVolumeMounts }}
+{{ tpl (toYaml .Values.extraVolumeMounts | indent 14) . }}
+{{- end }}
+          env:
+            - name: BROKER_SERVER_URL
+              value: {{ .Values.brokerServerUrl }}
+            - name: BROKER_HEALTHCHECK_PATH
+              value: {{ .Values.healthCheckPath }}
+            - name: BROKER_SYSTEMCHECK_PATH
+              value: {{ .Values.systemCheckPath }}
+{{- include "snyk-broker.apprisk" . | indent 12 }}
+{{- include "snyk-broker.githubCom" . | indent 12 }}
+{{- include "snyk-broker.githubEnterprise" . | indent 12 }}
+{{- include "snyk-broker.gitlab" . | indent 12 }}
+{{- include "snyk-broker.bitbucketServer" . | indent 12 }}
+{{- include "snyk-broker.bitbucketServerBearerAuth" . | indent 12 }}
+{{- include "snyk-broker.azureRepos" . | indent 12 }}
+{{- include "snyk-broker.artifactory" . | indent 12 }}
+{{- include "snyk-broker.nexus" . | indent 12 }}
+{{- include "snyk-broker.jira" . | indent 12 }}
+{{- include "snyk-broker.jiraBearerAuth" . | indent 12 }}
+{{- include "snyk-broker.containerRegistryAgent" . | indent 12 }}
+         {{- if .Values.enableCodeAgent }}
+         # Code Agent
+            - name: GIT_CLIENT_URL
+              value: {{ default (printf "http://code-agent-service:%s" (.Values.deployment.container.caSnykPort | toString)) .Values.gitClientUrl }}
+         {{- end }}
+         # Logging
+            - name: LOG_LEVEL
+              value: {{ .Values.logLevel }}
+            - name: LOG_ENABLE_BODY
+              value: {{ .Values.logEnableBody | squote }}
+
+         {{- if and (.Values.caCert) (not .Values.caCertFile) }}
+         # HTTPS Inspection
+            - name: CA_CERT
+              value: /home/node/cacert/{{ .Values.caCert }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: /home/node/cacert/{{ .Values.caCert }}
+         {{- end }}
+         {{- if and (.Values.caCertFile) (not .Values.caCert) }}
+          # HTTPS Inspection
+            - name: CA_CERT
+              value: /home/node/cacert/cacert
+            - name: NODE_EXTRA_CA_CERTS
+              value: /home/node/cacert/cacert
+         {{- end }}
+
+         {{- if .Values.caCertFileSecret.name }}
+          # HTTPS Inspection
+            - name: CA_CERT
+              value: /home/node/cacert/{{ .Values.caCertFileSecret.key }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: /home/node/cacert/{{ .Values.caCertFileSecret.key }}
+         {{- end }}
+
+         {{- if or .Values.httpsCert (.Values.httpsSecret.name) }}
+         # HTTPS Config
+            - name: HTTPS_CERT
+              value: /home/node/tls-cert/tls.crt
+         {{- end }}
+         {{- if or .Values.httpsKey (.Values.httpsSecret.name) }}
+            - name: HTTPS_KEY
+              value: /home/node/tls-cert/tls.key
+         {{- end }}
+         {{- if or ( and $setTlsRejectUnauthorized (not .Values.caCert ) (not .Values.caCertFile) ) ( and (or .Values.caCert .Values.caCertFile ) .Values.disableCaCertTrust ) }}
+         # Troubleshooting - Set to 0 for SSL inspection testing
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
+         {{- end }}
+
+         {{- if .Values.httpProxy }}
+         # HTTP Proxy Settings
+            - name: HTTP_PROXY
+              value: {{ .Values.httpProxy }}
+         {{- end }}
+
+         {{- if .Values.httpsProxy }}
+         # HTTPS Proxy Settings
+            - name: HTTPS_PROXY
+              value: {{ .Values.httpsProxy }}
+         {{- end }}
+
+         {{- if .Values.noProxy }}
+         # No Proxy Settings
+            - name: NO_PROXY
+              value: {{ include "snyk-broker.noProxy" . }}
+         {{- end }}
+
+         {{- if (include "snyk-broker.acceptJson" .)}}
+         # Accept.json Environment Variables
+            - name: ACCEPT
+              value: /home/node/private/accept.json
+         {{ else }}
+          {{- if has .Values.scmType ( list "github-com" "github-enterprise" "bitbucket-server" "bitbucket-server-bearer-auth" "gitlab" "azure-repos") }}
+          {{- if not .Values.disableAutoAcceptRules  }}
+          # Default Values to allow Snyk Code Snippets and Snyk IaC
+            - name: ACCEPT_CODE
+              value: "true"
+            - name: ACCEPT_IAC
+              value: "tf,yaml,yml,json,tpl"
+          {{- end}}
+          {{- if .Values.enableAppRisk }}
+            - name: ACCEPT_APPRISK
+              value: "true"
+          {{- end }}
+          {{- end}}
+         {{- end }}
+         # Broker Configuration
+        {{- if not .Values.preflightChecks.enabled }}
+            - name: PREFLIGHT_CHECKS_ENABLED
+              value: "false"
+        {{- end }}
+        {{- if .Values.highAvailabilityMode.enabled }}
+            - name: BROKER_HA_MODE_ENABLED
+              value: "true"
+        {{- end}}
+        {{- range .Values.env }}
+         # custom env var in override.yaml
+            - name: {{ .name }}
+              value: {{ .value | squote }}
+        {{- end}}
+            - name: BROKER_DISPATCHER_BASE_URL
+              value: {{ .Values.brokerDispatcherUrl }}
+      # Mount Accept.json and Certs
+      volumes:
+      {{- if (include "snyk-broker.acceptJson" .)}}
+      - name: {{ include "snyk-broker.fullname" . }}-accept-volume
+        configMap:
+          name: {{ include "snyk-broker.fullname" . }}-accept-configmap{{if not .Values.disableSuffixes }}-{{ .Release.Name }}{{ end }}
+      {{- end }}
+      {{- if or .Values.caCert .Values.caCertFileSecret.name .Values.caCertFile }}
+      - name: {{ include "snyk-broker.fullname" . }}-cacert-volume
+        secret:
+          secretName: {{ include "snyk-broker.caCertSecretName" . }}
+      {{- end }}
+      {{- if or .Values.httpsSecret.name ( and (.Values.httpsCert) (.Values.httpsKey) ) }}
+      - name: {{ include "snyk-broker.fullname" . }}-tls-secret-volume
+        secret:
+          secretName: {{ include "snyk-broker.tlsSecretName" . }}
+      {{- end }}
+{{- if .Values.extraVolumes }}
+{{ tpl (toYaml .Values.extraVolumes | indent 6) . }}
+{{- end }}

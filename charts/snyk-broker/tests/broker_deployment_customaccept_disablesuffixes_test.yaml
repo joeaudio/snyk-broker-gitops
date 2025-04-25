@@ -1,0 +1,17 @@
+suite: test broker deployment (No suffixes)
+chart:
+  version: 0.0.0
+templates:
+  - broker_deployment.yaml
+  - broker_service.yaml
+  - secrets.yaml
+  - serviceaccount.yaml
+  - accept_configmap.yaml
+values:
+  - ./fixtures/default_values.yaml
+  - ./fixtures/customaccept_values_disablesuffixes.yaml
+
+tests:
+  - it: customaccept values
+    asserts:
+      - matchSnapshot: {}

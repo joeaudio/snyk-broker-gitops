@@ -1,0 +1,101 @@
+{{ $setTlsRejectUnauthorized := include "snyk-broker.setTlsRejectUnauthorized" . }}
+{{- if eq .Values.scmType "container-registry-agent" }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "{{ .Values.scmType}}-cra{{if not .Values.disableSuffixes }}-{{ .Release.Name }}{{ end }}"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Release.Name }}-cr{{if not .Values.disableSuffixes }}-{{ .Release.Name }}{{ end }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Release.Name }}-cr{{if not .Values.disableSuffixes }}-{{ .Release.Name }}{{ end }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        app.kubernetes.io/name: {{ .Release.Name }}-cr{{if not .Values.disableSuffixes }}-{{ .Release.Name }}{{ end }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      {{- if .Values.extraPodSpecsCr }}
+          {{- toYaml .Values.extraPodSpecsCr | nindent 6 }}
+      {{- end }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "snyk-broker.serviceAccountName" . }}{{if not .Values.disableSuffixes }}-{{ .Release.Name }}{{ end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: container-registry-agent{{if not .Values.disableSuffixes }}-{{ .Release.Name }}{{ end }}
+          resources:
+            limits:
+              cpu: {{ .Values.crResources.limits.cpu }}
+              memory: {{ .Values.crResources.limits.memory }}
+            requests:
+              cpu: {{ .Values.crResources.requests.cpu }}
+              memory: {{ .Values.crResources.requests.memory}}
+          securityContext:
+            {{- toYaml .Values.securityContextCr | nindent 12 }}
+          image: "{{ .Values.image.crRepository }}:{{ .Values.crImage}}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.deployment.container.crSnykPort }}
+          env:
+            - name: SNYK_PORT
+              value: {{ .Values.deployment.container.crSnykPort | squote }}
+         {{- if $setTlsRejectUnauthorized }}
+         # Troubleshooting - Set to 0 for SSL inspection testing
+            - name: NODE_TLS_REJECT_UNAUTHORIZED
+              value: "0"
+         {{- end }}
+         {{- if .Values.caCert }}
+         # HTTPS Inspection
+            - name: CA_CERT
+              value: /home/node/cacert/{{ .Values.caCert }}
+            - name: NODE_EXTRA_CA_CERTS
+              value: /home/node/cacert/{{ .Values.caCert }}
+         {{- end }}
+         {{- range .Values.env }}
+         # custom env var in override.yaml
+            - name: {{ .name }}
+              value: {{ .value | squote }}
+        {{- end}}
+        {{- if .Values.caCert }}
+          volumeMounts:
+              - name: {{ include "snyk-broker.fullname" . }}-cacert-volume
+                mountPath: /home/node/cacert
+                readOnly: true
+        {{- end }}
+      {{- if .Values.caCert }}
+      volumes:
+      - name: {{ include "snyk-broker.fullname" . }}-cacert-volume
+        configMap:
+          name: {{ include "snyk-broker.fullname" . }}-cacert-configmap{{if not .Values.disableSuffixes }}-{{ .Release.Name }}{{ end }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "cra-service{{if not .Values.disableSuffixes }}-{{ .Release.Name }}{{ end }}"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "snyk-broker.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.crType }}
+  ports:
+    - port: {{ .Values.deployment.container.crSnykPort }}
+      targetPort: {{ .Values.deployment.container.crSnykPort}}
+  selector:
+    app.kubernetes.io/name: {{ .Release.Name }}-cr{{if not .Values.disableSuffixes }}-{{ .Release.Name }}{{ end }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

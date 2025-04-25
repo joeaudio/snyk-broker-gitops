@@ -1,0 +1,20 @@
+suite: broker deployment (artifactory)
+chart:
+  version: 0.0.0
+templates:
+  - broker_deployment.yaml
+  - broker_service.yaml
+  - secrets.yaml
+  - serviceaccount.yaml
+values:
+  - ./fixtures/default_values.yaml
+  - ./fixtures/default_values.yaml
+
+tests:
+  - it: should render artifactoryUrl and brokerClientValidationUrl as secrets
+    set:
+      scmType: artifactory
+      artifactoryUrl: username:password@your-domain.com/artifactory
+      brokerClientValidationUrl: https://username:password@your-domain.com/artifactory/api/system/ping
+    asserts:
+      - matchSnapshot: {}

@@ -1,0 +1,41 @@
+suite: test broker deployment
+chart:
+  version: 0.0.0
+templates:
+  - broker_deployment.yaml
+  - broker_service.yaml
+  - secrets.yaml
+  - serviceaccount.yaml
+
+tests:
+  - it: default values
+    values:
+      - ./fixtures/default_values.yaml
+    asserts:
+      - matchSnapshot: {}
+  - it: HTTPS enabled
+    values:
+      - ./fixtures/default_values_https_enabled.yaml
+    asserts:
+      - matchSnapshot: {}
+  - it: preflight checks off
+    values:
+      - ./fixtures/default_values_preflight_off.yaml
+    asserts:
+      - matchSnapshot: {}
+  - it: HA mode on
+    values:
+      - ./fixtures/default_values_ha_on.yaml
+    asserts:
+      - matchSnapshot: {}
+  - it: HA mode on with 4 replicas
+    values:
+      - ./fixtures/default_values_ha_on_4_replicas.yaml
+    asserts:
+      - matchSnapshot: {}
+  - it: Does not fail if no broker token is specified
+    set:
+      brokerToken: ""
+    asserts:
+      - notFailedTemplate: {}
+        template: broker_deployment.yaml

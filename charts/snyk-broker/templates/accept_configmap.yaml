@@ -1,0 +1,12 @@
+{{- if (include "snyk-broker.acceptJson" .)}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "snyk-broker.fullname" . }}-accept-configmap{{if not .Values.disableSuffixes }}-{{ .Release.Name }}{{ end }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "snyk-broker.labels" . | nindent 4 }}
+data:
+  accept.json: |-
+{{include "snyk-broker.acceptJson" . | indent 4}}
+{{- end }}

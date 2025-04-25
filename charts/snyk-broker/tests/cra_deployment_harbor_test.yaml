@@ -1,0 +1,15 @@
+suite: test broker deployment
+chart:
+  version: 0.0.0
+templates:
+  - cra_deployment.yaml
+  - broker_deployment.yaml
+values:
+  - ./fixtures/default_values.yaml
+
+tests:
+  - it: default values
+    values:
+      - ./fixtures/default_values_cra_harbor.yaml
+    asserts:
+      - matchSnapshot: {}
